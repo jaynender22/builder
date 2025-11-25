@@ -1,16 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState, KeyboardEvent } from "react";
 
 type Block = {
   id: string;
   text: string;
 };
 
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+};
+
 export default function HomePage() {
   const [rawText, setRawText] = useState("");
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+
+  // per-block chats + current chat input
+  const [chatsByBlockId, setChatsByBlockId] = useState<
+    Record<string, ChatMessage[]>
+  >({});
+  const [chatInput, setChatInput] = useState("");
 
   function handleParse() {
     // Very simple split: each non-empty line becomes a block
@@ -26,6 +38,7 @@ export default function HomePage() {
 
     setBlocks(newBlocks);
     setActiveBlockId(newBlocks[0]?.id ?? null);
+    setChatsByBlockId({}); // reset chats when parsing new text
   }
 
   function updateBlockText(id: string, newText: string) {
@@ -36,10 +49,56 @@ export default function HomePage() {
     );
   }
 
+  function handleSendChat() {
+    if (!activeBlockId) return;
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+
+    const currentMessages = chatsByBlockId[activeBlockId] ?? [];
+
+    const userMessage: ChatMessage = {
+      id: `msg-${Date.now()}-user`,
+      role: "user",
+      content: trimmed,
+    };
+
+    // Fake AI reply for now – this is where we'll later call the backend
+    const assistantMessage: ChatMessage = {
+      id: `msg-${Date.now()}-assistant`,
+      role: "assistant",
+      content: `FAKE AI: I would rewrite this block based on your request: "${trimmed}"`,
+    };
+
+    const updatedMessages = [...currentMessages, userMessage, assistantMessage];
+
+    setChatsByBlockId((prev) => ({
+      ...prev,
+      [activeBlockId]: updatedMessages,
+    }));
+
+    setChatInput("");
+  }
+
   const activeBlock = blocks.find((b) => b.id === activeBlockId) || null;
+  const activeChatMessages =
+    (activeBlockId ? chatsByBlockId[activeBlockId] : []) ?? [];
+
+  function handleChatKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendChat();
+    }
+  }
 
   return (
-    <main style={{ padding: "20px", fontFamily: "sans-serif" }}>
+    <main
+      style={{
+        padding: "20px",
+        fontFamily: "sans-serif",
+        maxWidth: "1200px",
+        margin: "0 auto",
+      }}
+    >
       <h1 style={{ fontSize: "24px", marginBottom: "12px" }}>
         Resume Block Editor (Prototype)
       </h1>
@@ -77,46 +136,126 @@ export default function HomePage() {
           marginTop: "16px",
         }}
       >
-        {/* Left side: active block info (chat area later) */}
+        {/* Left side: active block + chat */}
         <div
           style={{
-            border: "1px solid #ccc",
+            border: "1px solid #444",
             borderRadius: "8px",
             padding: "12px",
-            minHeight: "200px",
+            minHeight: "260px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
           }}
         >
-          <h2 style={{ fontSize: "18px", marginBottom: "8px" }}>
-            Current Block (Chat goes here later)
-          </h2>
+          <h2 style={{ fontSize: "18px" }}>Current Block & Chat</h2>
+
           {activeBlock ? (
             <>
-              <p style={{ fontSize: "14px", color: "#666" }}>Block text:</p>
+              {/* Block preview */}
               <div
                 style={{
-                  border: "1px solid #ddd",
+                  border: "1px solid #333",
                   borderRadius: "4px",
                   padding: "8px",
-                  backgroundColor: "#fafafa",
+                  backgroundColor: "#111",
                   whiteSpace: "pre-wrap",
                   fontSize: "14px",
                 }}
               >
                 {activeBlock.text}
               </div>
+
+              {/* Chat messages */}
+              <div
+                style={{
+                  flex: 1,
+                  border: "1px solid #333",
+                  borderRadius: "4px",
+                  padding: "8px",
+                  overflowY: "auto",
+                  maxHeight: "250px",
+                  backgroundColor: "#050505",
+                }}
+              >
+                {activeChatMessages.length === 0 ? (
+                  <p style={{ fontSize: "13px", color: "#888" }}>
+                    No chat yet. Type a prompt below to start editing this
+                    block.
+                  </p>
+                ) : (
+                  activeChatMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      style={{
+                        marginBottom: "6px",
+                        textAlign: msg.role === "user" ? "right" : "left",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "inline-block",
+                          padding: "6px 8px",
+                          borderRadius: "12px",
+                          fontSize: "13px",
+                          backgroundColor:
+                            msg.role === "user" ? "#2563eb" : "#333",
+                          color: "white",
+                        }}
+                      >
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Chat input */}
+              <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Tell the AI how to improve this block..."
+                  style={{
+                    flex: 1,
+                    padding: "8px",
+                    borderRadius: "4px",
+                    border: "1px solid #555",
+                    fontSize: "14px",
+                    backgroundColor: "#111",
+                    color: "white",
+                  }}
+                  onKeyDown={handleChatKeyDown}
+                />
+                <button
+                  onClick={handleSendChat}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "4px",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    backgroundColor: "#22c55e",
+                    color: "black",
+                    fontWeight: 600,
+                  }}
+                >
+                  Send
+                </button>
+              </div>
             </>
           ) : (
-            <p>No block selected yet.</p>
+            <p>No block selected yet. Parse and focus a block to start.</p>
           )}
         </div>
 
         {/* Right side: list of editable blocks */}
         <div
           style={{
-            border: "1px solid #ccc",
+            border: "1px solid #444",
             borderRadius: "8px",
             padding: "12px",
-            minHeight: "200px",
+            minHeight: "260px",
           }}
         >
           <h2 style={{ fontSize: "18px", marginBottom: "8px" }}>
@@ -125,16 +264,22 @@ export default function HomePage() {
           {blocks.length === 0 ? (
             <p>No blocks yet. Paste your resume and click "Parse".</p>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+              }}
+            >
               {blocks.map((block) => (
                 <div
                   key={block.id}
                   style={{
-                    border: "1px solid #ddd",
+                    border: "1px solid #333",
                     borderRadius: "4px",
                     padding: "8px",
                     backgroundColor:
-                      block.id === activeBlockId ? "#eef6ff" : "white",
+                      block.id === activeBlockId ? "#111827" : "black",
                   }}
                 >
                   <div
@@ -145,7 +290,7 @@ export default function HomePage() {
                       alignItems: "center",
                     }}
                   >
-                    <span style={{ fontSize: "12px", color: "#666" }}>
+                    <span style={{ fontSize: "12px", color: "#888" }}>
                       {block.id}
                     </span>
                     <button
@@ -154,6 +299,11 @@ export default function HomePage() {
                         fontSize: "12px",
                         padding: "4px 8px",
                         cursor: "pointer",
+                        borderRadius: "4px",
+                        border: "1px solid #555",
+                        backgroundColor:
+                          block.id === activeBlockId ? "#2563eb" : "#111",
+                        color: "white",
                       }}
                     >
                       Focus this block
@@ -165,7 +315,15 @@ export default function HomePage() {
                       updateBlockText(block.id, e.target.value)
                     }
                     rows={2}
-                    style={{ width: "100%", fontSize: "14px", padding: "4px" }}
+                    style={{
+                      width: "100%",
+                      fontSize: "14px",
+                      padding: "4px",
+                      backgroundColor: "#020617",
+                      color: "white",
+                      borderRadius: "4px",
+                      border: "1px solid #333",
+                    }}
                   />
                 </div>
               ))}
@@ -176,4 +334,5 @@ export default function HomePage() {
     </main>
   );
 }
+
 
