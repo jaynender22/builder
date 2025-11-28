@@ -25,7 +25,6 @@ export default function HomePage() {
   const [chatInput, setChatInput] = useState("");
 
   function handleParse() {
-    // Very simple split: each non-empty line becomes a block
     const lines = rawText
       .split("\n")
       .map((line) => line.trim())
@@ -49,10 +48,13 @@ export default function HomePage() {
     );
   }
 
-  function handleSendChat() {
+  async function handleSendChat() {
     if (!activeBlockId) return;
     const trimmed = chatInput.trim();
     if (!trimmed) return;
+
+    const activeBlock = blocks.find((b) => b.id === activeBlockId);
+    if (!activeBlock) return;
 
     const currentMessages = chatsByBlockId[activeBlockId] ?? [];
 
@@ -62,21 +64,52 @@ export default function HomePage() {
       content: trimmed,
     };
 
-    // Fake AI reply for now – this is where we'll later call the backend
-    const assistantMessage: ChatMessage = {
-      id: `msg-${Date.now()}-assistant`,
-      role: "assistant",
-      content: `FAKE AI: I would rewrite this block based on your request: "${trimmed}"`,
-    };
-
-    const updatedMessages = [...currentMessages, userMessage, assistantMessage];
-
+    // Show user message immediately
+    const messagesWithUser = [...currentMessages, userMessage];
     setChatsByBlockId((prev) => ({
       ...prev,
-      [activeBlockId]: updatedMessages,
+      [activeBlockId]: messagesWithUser,
     }));
-
     setChatInput("");
+
+    try {
+      const res = await fetch("/api/ai-edit-block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          blockText: activeBlock.text,
+          userPrompt: trimmed,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      const assistantMessage: ChatMessage = {
+        id: `msg-${Date.now()}-assistant`,
+        role: "assistant",
+        content: data.suggestedText ?? "No suggestion returned.",
+      };
+
+      setChatsByBlockId((prev) => ({
+        ...prev,
+        [activeBlockId]: [...messagesWithUser, assistantMessage],
+      }));
+    } catch (error) {
+      console.error("Error sending chat:", error);
+      const errorMessage: ChatMessage = {
+        id: `msg-${Date.now()}-assistant-error`,
+        role: "assistant",
+        content: "Sorry, something went wrong calling the AI.",
+      };
+      setChatsByBlockId((prev) => ({
+        ...prev,
+        [activeBlockId]: [...messagesWithUser, errorMessage],
+      }));
+    }
   }
 
   const activeBlock = blocks.find((b) => b.id === activeBlockId) || null;
@@ -334,5 +367,6 @@ export default function HomePage() {
     </main>
   );
 }
+
 
 
