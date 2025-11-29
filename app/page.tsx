@@ -11,6 +11,7 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  canApply?: boolean; // true when this message is a suggestion we can apply
 };
 
 export default function HomePage() {
@@ -18,7 +19,6 @@ export default function HomePage() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
 
-  // per-block chats + current chat input
   const [chatsByBlockId, setChatsByBlockId] = useState<
     Record<string, ChatMessage[]>
   >({});
@@ -48,6 +48,15 @@ export default function HomePage() {
     );
   }
 
+  function applySuggestionToActiveBlock(suggestion: string) {
+    if (!activeBlockId) return;
+    setBlocks((prev) =>
+      prev.map((block) =>
+        block.id === activeBlockId ? { ...block, text: suggestion } : block
+      )
+    );
+  }
+
   async function handleSendChat() {
     if (!activeBlockId) return;
     const trimmed = chatInput.trim();
@@ -64,7 +73,6 @@ export default function HomePage() {
       content: trimmed,
     };
 
-    // Show user message immediately
     const messagesWithUser = [...currentMessages, userMessage];
     setChatsByBlockId((prev) => ({
       ...prev,
@@ -82,16 +90,24 @@ export default function HomePage() {
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        // ignore JSON parse errors
       }
 
-      const data = await res.json();
+      if (!res.ok) {
+        const msg =
+          data?.error || `HTTP ${res.status} while calling /api/ai-edit-block`;
+        throw new Error(msg);
+      }
 
       const assistantMessage: ChatMessage = {
         id: `msg-${Date.now()}-assistant`,
         role: "assistant",
-        content: data.suggestedText ?? "No suggestion returned.",
+        content: data?.suggestedText ?? "No suggestion returned.",
+        canApply: !!data?.suggestedText,
       };
 
       setChatsByBlockId((prev) => ({
@@ -100,11 +116,18 @@ export default function HomePage() {
       }));
     } catch (error) {
       console.error("Error sending chat:", error);
+      const msg =
+        error instanceof Error
+          ? error.message
+          : "Unknown error calling the AI.";
+
       const errorMessage: ChatMessage = {
         id: `msg-${Date.now()}-assistant-error`,
         role: "assistant",
-        content: "Sorry, something went wrong calling the AI.",
+        content: msg,
+        canApply: false,
       };
+
       setChatsByBlockId((prev) => ({
         ...prev,
         [activeBlockId]: [...messagesWithUser, errorMessage],
@@ -221,7 +244,7 @@ export default function HomePage() {
                     <div
                       key={msg.id}
                       style={{
-                        marginBottom: "6px",
+                        marginBottom: "8px",
                         textAlign: msg.role === "user" ? "right" : "left",
                       }}
                     >
@@ -234,10 +257,39 @@ export default function HomePage() {
                           backgroundColor:
                             msg.role === "user" ? "#2563eb" : "#333",
                           color: "white",
+                          maxWidth: "100%",
+                          whiteSpace: "pre-wrap",
                         }}
                       >
                         {msg.content}
                       </div>
+
+                      {/* Apply button for assistant suggestions */}
+                      {msg.role === "assistant" && msg.canApply && (
+                        <div
+                          style={{
+                            marginTop: "4px",
+                            display: "inline-block",
+                          }}
+                        >
+                          <button
+                            onClick={() =>
+                              applySuggestionToActiveBlock(msg.content)
+                            }
+                            style={{
+                              fontSize: "11px",
+                              padding: "4px 8px",
+                              borderRadius: "999px",
+                              border: "1px solid #4ade80",
+                              backgroundColor: "transparent",
+                              color: "#bbf7d0",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Apply to block
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -367,6 +419,3 @@ export default function HomePage() {
     </main>
   );
 }
-
-
-

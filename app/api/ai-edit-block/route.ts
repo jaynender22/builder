@@ -1,12 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 
-// The client will pick up:
-// - GOOGLE_APPLICATION_CREDENTIALS (service account JSON)
-// - GOOGLE_CLOUD_PROJECT
-// - GOOGLE_CLOUD_LOCATION
-// - GOOGLE_GENAI_USE_VERTEXAI=True
-const client = new GoogleGenAI({});
+const projectId = process.env.GOOGLE_CLOUD_PROJECT;
+const location = process.env.GOOGLE_CLOUD_LOCATION || "us-central1";
+
+if (!projectId) {
+  console.warn("GOOGLE_CLOUD_PROJECT is not set. Check your .env.local");
+}
+if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  console.warn(
+    "GOOGLE_APPLICATION_CREDENTIALS is not set. The SDK may not be able to authenticate."
+  );
+}
+
+const client = new GoogleGenAI({
+  vertexai: true,
+  project: projectId,
+  location,
+  apiVersion: "v1",
+});
+
+// Optional GET for debugging env
+export async function GET() {
+  return NextResponse.json({
+    projectId,
+    location,
+    hasCreds: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
+  });
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,22 +62,31 @@ User request:
 Return only the improved bullet.
 `.trim();
 
-    // Call Gemini via Vertex (model name is the short name here)
     const response = await client.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash-lite",
       contents: combinedPrompt,
     });
 
-    // In the Gen AI SDK, response.text is a convenient string accessor
+    const anyResp = response as any;
     const suggestion =
-      (response as any).text?.trim?.() || (response as any).text || blockText;
+      typeof anyResp.text === "function"
+        ? anyResp.text().trim()
+        : anyResp.text?.trim?.() || blockText;
 
     return NextResponse.json({ suggestedText: suggestion });
-  } catch (err) {
-    console.error("Error in /api/ai-edit-block:", err);
-    return NextResponse.json(
-      { error: "Server error calling Vertex / Gemini" },
-      { status: 500 }
+  } catch (err: any) {
+    console.error(
+      "Error in /api/ai-edit-block:",
+      err?.name,
+      err?.message,
+      err
     );
+
+    const message =
+      err?.message ||
+      err?.toString?.() ||
+      "Server error calling Vertex / Gemini";
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
