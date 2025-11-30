@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PDFParse } from "pdf-parse";
+import pdf from "pdf-parse";
 
 export const runtime = "nodejs";
 
@@ -19,10 +19,9 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Use pdf-parse v2 API
-    const parser = new PDFParse({ data: buffer });
-    const result = await parser.getText();
-    const text = result.text || "";
+    // pdf-parse v1 API
+    const data = await pdf(buffer);
+    const text = data.text || "";
 
     if (!text.trim()) {
       return NextResponse.json(
@@ -32,10 +31,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ text });
-  } catch (err) {
+  } catch (err: any) {
     console.error("Error parsing PDF:", err);
     return NextResponse.json(
-      { error: "Server error while parsing PDF" },
+      { error: err?.message || "Server error while parsing PDF" },
       { status: 500 }
     );
   }
