@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import pdf from "pdf-parse";
+import { PDFParse } from "pdf-parse";
 
 export const runtime = "nodejs";
 
@@ -15,11 +15,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Read file into a Buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const data = await pdf(buffer);
-    const text = data.text || "";
+    // Use pdf-parse v2 API
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    const text = result.text || "";
 
     if (!text.trim()) {
       return NextResponse.json(
