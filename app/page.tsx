@@ -1,6 +1,10 @@
 "use client";
 
-import React, { useState, KeyboardEvent } from "react";
+import React, {
+  useState,
+  KeyboardEvent,
+  ChangeEvent,
+} from "react";
 
 type Block = {
   id: string;
@@ -11,8 +15,54 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  canApply?: boolean; // true when this message is a suggestion we can apply
+  canApply?: boolean;
 };
+
+// Helper: turn raw text into one-bullet-per-block
+function splitTextIntoBlocks(rawText: string): string[] {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+
+  const blocks: string[] = [];
+  let current = "";
+
+  // bullet markers: •, -, *, number.
+  const bulletRegex = /^(\u2022|-|\*|\d+\.)\s*/;
+
+  for (const line of lines) {
+    if (!line) {
+      // blank line = separator
+      if (current) {
+        blocks.push(current.trim());
+        current = "";
+      }
+      continue;
+    }
+
+    if (bulletRegex.test(line)) {
+      // new bullet starts
+      if (current) {
+        blocks.push(current.trim());
+      }
+      current = line; // keep bullet char in text
+    } else {
+      // continuation of current bullet (wrapped line)
+      if (current) {
+        current += " " + line;
+      } else {
+        // text before first bullet – treat as its own block
+        current = line;
+      }
+    }
+  }
+
+  if (current) {
+    blocks.push(current.trim());
+  }
+
+  return blocks;
+}
 
 export default function HomePage() {
   const [rawText, setRawText] = useState("");
@@ -24,20 +74,20 @@ export default function HomePage() {
   >({});
   const [chatInput, setChatInput] = useState("");
 
-  function handleParse() {
-    const lines = rawText
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+  const [isParsingPdf, setIsParsingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
-    const newBlocks: Block[] = lines.map((line, index) => ({
+  function handleParse() {
+    const blockTexts = splitTextIntoBlocks(rawText);
+
+    const newBlocks: Block[] = blockTexts.map((text, index) => ({
       id: `block-${index}`,
-      text: line,
+      text,
     }));
 
     setBlocks(newBlocks);
     setActiveBlockId(newBlocks[0]?.id ?? null);
-    setChatsByBlockId({}); // reset chats when parsing new text
+    setChatsByBlockId({});
   }
 
   function updateBlockText(id: string, newText: string) {
@@ -55,6 +105,44 @@ export default function HomePage() {
         block.id === activeBlockId ? { ...block, text: suggestion } : block
       )
     );
+  }
+
+  async function handlePdfUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      setPdfError("Please upload a PDF file.");
+      return;
+    }
+
+    setPdfError(null);
+    setIsParsingPdf(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/parse-pdf", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to parse PDF");
+      }
+
+      setRawText(data.text || "");
+    } catch (err: any) {
+      console.error("PDF upload error:", err);
+      setPdfError(
+        err?.message || "Something went wrong while parsing the PDF."
+      );
+    } finally {
+      setIsParsingPdf(false);
+    }
   }
 
   async function handleSendChat() {
@@ -159,17 +247,46 @@ export default function HomePage() {
         Resume Block Editor (Prototype)
       </h1>
 
-      {/* Paste resume */}
+      {/* Upload PDF + paste text */}
       <div style={{ marginBottom: "16px" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "12px",
+            alignItems: "center",
+            marginBottom: "8px",
+          }}
+        >
+          <label>
+            <span style={{ marginRight: "8px" }}>Upload PDF:</span>
+            <input
+              type="file"
+              accept="application/pdf"
+              onChange={handlePdfUpload}
+            />
+          </label>
+          {isParsingPdf && (
+            <span style={{ fontSize: "12px", color: "#a3e635" }}>
+              Parsing PDF...
+            </span>
+          )}
+          {pdfError && (
+            <span style={{ fontSize: "12px", color: "#f97373" }}>
+              {pdfError}
+            </span>
+          )}
+        </div>
+
         <label style={{ display: "block", marginBottom: "8px" }}>
-          Paste your resume text here:
+          Or paste your resume text here:
         </label>
         <textarea
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
           rows={6}
           style={{ width: "100%", padding: "8px" }}
-          placeholder="Paste your resume here..."
+          placeholder="Paste your resume here, or upload a PDF above..."
         />
         <button
           onClick={handleParse}
@@ -208,7 +325,6 @@ export default function HomePage() {
 
           {activeBlock ? (
             <>
-              {/* Block preview */}
               <div
                 style={{
                   border: "1px solid #333",
@@ -222,7 +338,6 @@ export default function HomePage() {
                 {activeBlock.text}
               </div>
 
-              {/* Chat messages */}
               <div
                 style={{
                   flex: 1,
@@ -264,7 +379,6 @@ export default function HomePage() {
                         {msg.content}
                       </div>
 
-                      {/* Apply button for assistant suggestions */}
                       {msg.role === "assistant" && msg.canApply && (
                         <div
                           style={{
@@ -295,7 +409,6 @@ export default function HomePage() {
                 )}
               </div>
 
-              {/* Chat input */}
               <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
                 <input
                   value={chatInput}
@@ -419,3 +532,4 @@ export default function HomePage() {
     </main>
   );
 }
+
